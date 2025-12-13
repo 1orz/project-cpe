@@ -1,0 +1,16 @@
+meta {
+  name: get_health
+  type: http
+  seq: 16
+}
+
+get {
+  url: http://192.168.66.1:3000/api/health
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}
+

@@ -1,0 +1,16 @@
+meta {
+  name: Get Call Volume
+  type: http
+  seq: 204
+}
+
+get {
+  url: http://192.168.66.1:3000/api/call/volume
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}
+

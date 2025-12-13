@@ -1,0 +1,27 @@
+meta {
+  name: Set APN Configuration
+  type: http
+  seq: 81
+}
+
+post {
+  url: http://192.168.66.1:3000/api/apn
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "context_path": "/ril_0/context2",
+    "apn": "cbnet",
+    "protocol": "dual",
+    "username": "",
+    "password": "",
+    "auth_method": "chap"
+  }
+}
+
+settings {
+  encodeUrl: true
+}
+

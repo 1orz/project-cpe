@@ -1,0 +1,370 @@
+# UDX710 Backend Project - Cursor Rules
+
+## 项目概述
+这是一个基于 Rust + Axum + zbus 的 5G/LTE 模块后端服务，通过 ofono D-Bus 接口控制调制解调器。
+
+## 技术栈
+- **后端**: Rust + Axum + tokio + zbus
+- **前端**: React + TypeScript + Material-UI
+- **通信**: D-Bus (ofono) + AT 指令
+
+## ofono D-Bus 接口规范
+
+### 核心接口
+1. **org.ofono.Manager** - 获取调制解调器列表
+2. **org.ofono.Modem** - 调制解调器属性和控制
+3. **org.ofono.VoiceCallManager** - 语音通话管理
+4. **org.ofono.ConnectionManager** - 数据连接管理
+5. **org.ofono.NetworkRegistration** - 网络注册状态
+6. **org.ofono.SimManager** - SIM 卡管理
+
+### Modem 接口关键属性
+- `Powered` (boolean) - 调制解调器电源状态
+  - true: 调制解调器已上电
+  - false: 调制解调器已关闭
+- `Online` (boolean) - 射频状态
+  - true: 射频开启，可以连接网络
+  - false: 射频关闭（飞行模式）
+- `Interfaces` (array) - 当前可用的接口列表
+- `Features` (array) - 支持的功能列表
+- `Type` (string) - 调制解调器类型（hardware/hfp/sap）
+
+### 飞行模式实现
+**标准方法**：
+```rust
+// 设置飞行模式（关闭射频）
+modem_proxy.call_method(
+    "SetProperty",
+    &("Online", zbus::zvariant::Value::Bool(false))
+)?;
+
+// 退出飞行模式（开启射频）
+modem_proxy.call_method(
+    "SetProperty",
+    &("Online", zbus::zvariant::Value::Bool(true))
+)?;
+```
+
+**注意事项**：
+- `Online=false` 会关闭射频但保持调制解调器上电
+- `Powered=false` 会完全关闭调制解调器
+- 飞行模式应使用 `Online` 属性，而非 `Powered`
+- 修改属性后需要等待状态变化信号
+
+### ConnectionManager 接口
+- `Attached` (boolean) - 是否附着到网络
+- `Powered` (boolean) - 数据连接电源状态
+- `Active` (boolean) - 数据连接是否激活
+
+**激活/关闭数据连接**：
+```rust
+// 激活数据连接
+context_proxy.call_method("SetProperty", &("Active", true))?;
+
+// 关闭数据连接
+context_proxy.call_method("SetProperty", &("Active", false))?;
+```
+
+**注意事项**：
+- 每次切换数据连接状态时，会自动清空 iptables 规则（`iptables -F`）
+- 这确保网络配置始终处于干净状态，避免旧规则干扰
+- iptables 清空操作失败不会阻止数据连接的切换，只会记录警告日志
+
+### NetworkRegistration 接口
+- `Status` (string) - 注册状态
+  - "registered" - 已注册
+  - "searching" - 搜索中
+  - "denied" - 被拒绝
+  - "roaming" - 漫游
+- `Technology` (string) - 当前网络技术（gsm/edge/umts/hspa/lte/nr）
+- `Strength` (byte) - 信号强度 (0-100)
+
+### RadioSettings 接口（射频模式切换）
+- `TechnologyPreference` (string) - 网络技术偏好
+  - "NR 5G/LTE auto" - 4G/5G 自动切换
+  - "LTE only" - 仅 4G LTE
+  - "NR 5G only" - 仅 5G NR
+
+**切换射频模式**：
+```rust
+// 设置射频模式为 5G/4G 自动
+radio_proxy.call_method(
+    "SetProperty",
+    &("TechnologyPreference", "NR 5G/LTE auto")
+)?;
+```
+
+**注意事项**：
+- 射频模式切换使用 `org.ofono.RadioSettings` 接口
+- 不要使用 `AT+SPLMODE` 指令，使用 D-Bus 接口更可靠
+- 切换后网络会重新注册，需要等待几秒
+
+### AT 指令接口
+- 接口：`org.ofono.VoiceCallManager` (通常在此接口发送 AT 指令)
+- 方法：`SendUssd` (某些实现可能不同)
+- 实际项目中使用自定义方法发送 AT 指令
+
+### AT+SPLBAND 频段锁定指令
+**LTE 频段锁定**：
+- 读取：`AT+SPLBAND=0`
+- 设置：`AT+SPLBAND=1,0,<TDD>,0,0,<FDD>,0`
+- 格式：`+SPLBAND=0,<TDD>,0,0,<FDD>,0`
+
+**NR 频段锁定**：
+- 读取：`AT+SPLBAND=3`
+- 设置：`AT+SPLBAND=2,<NR-FDD>,0,<NR-TDD>,0`
+- 格式：`+SPLBAND=<NR-FDD>,0,<NR-TDD>,0`
+
+**频段位掩码计算**：
+- LTE FDD: B1-B16 (base=1), 如 B1=1, B3=4, B8=128
+- LTE TDD: B33-B48 (base=33), 如 B38=32, B40=128, B41=256
+- NR FDD: N1-N16 (base=1)
+- NR TDD: N41-N56+ (base=41), 如 N41=1, N77=64, N78=128, N79=256
+
+**解锁所有频段**：
+```
+AT+SPLBAND=1,0,0,0,0,0,0  // LTE 解锁
+AT+SPLBAND=2,0,0,0,0      // NR 解锁
+```
+
+## 代码规范
+
+### Rust 后端
+1. **错误处理**: 统一使用 `Result<T, String>` 或 `anyhow::Result`
+2. **异步函数**: 所有 I/O 操作使用 `async/await`
+3. **D-Bus 调用**: 
+   - 串行执行（ofono 不支持并发）
+   - 使用 `.await?` 链式调用
+   - 错误信息清晰描述失败原因
+4. **API 响应**: 统一使用 `ApiResponse<T>` 结构
+   - `status`: "ok" 或 "error"
+   - `message`: 操作结果描述
+   - `data`: 可选的返回数据
+
+### 前端规范
+1. **类型安全**: 所有 API 响应都有对应的 TypeScript 接口
+2. **错误处理**: 使用 `ErrorSnackbar` 显示错误信息
+3. **状态管理**: 使用 React Hooks (useState, useEffect)
+4. **自动刷新**: 集成 `RefreshContext` 统一控制
+
+## 文件组织
+```
+src/
+├── main.rs          # 路由定义和服务启动
+├── handlers.rs      # API 处理函数
+├── models.rs        # 数据模型定义
+├── dbus.rs          # D-Bus 接口封装
+├── utils.rs         # 工具函数（解析、格式化）
+└── usb_switch.rs    # USB 模式切换
+
+frontend/src/
+├── api/
+│   ├── index.ts     # API 客户端
+│   └── types.ts     # TypeScript 类型定义
+├── pages/
+│   └── Dashboard.tsx # 仪表盘页面
+└── components/      # 可复用组件
+```
+
+## 常见模式
+
+### 添加新的 D-Bus 接口
+1. 在 `dbus.rs` 中创建代理函数
+2. 在 `models.rs` 中定义响应结构
+3. 在 `handlers.rs` 中实现 HTTP 处理函数
+4. 在 `main.rs` 中注册路由
+5. 在前端 `api/types.ts` 中添加类型
+6. 在前端 `api/index.ts` 中添加 API 方法
+
+### 添加新的系统信息读取
+1. 在 `utils.rs` 中实现读取函数（从 `/proc` 或 `/sys`）
+2. 在 `models.rs` 中定义数据结构
+3. 在 `handlers.rs` 中封装为 API
+4. 前端添加对应的显示组件
+
+## 性能优化
+- D-Bus 调用必须串行（ofono 限制）
+- 系统信息读取可以并行
+- 网速计算需要异步采样（1秒间隔）
+- 避免在同一请求中多次读取相同数据
+
+## 安全注意事项
+- 敏感信息（IMEI、ICCID、IMSI）默认遮罩显示
+- AT 指令执行返回纯文本，由调用者解析
+- 系统调用使用 `unsafe` 需要正确处理 C 字符串
+
+## 测试建议
+- 单元测试：工具函数（解析、格式化）
+- 集成测试：D-Bus 接口调用
+- E2E 测试：完整的 HTTP API 流程
+
+## API 测试集合同步规范
+
+### 概述
+项目中包含 Bruno API 测试集合（`udx710-api/` 文件夹），**必须与后端 API 保持同步**。
+
+### 强制要求
+1. **新增 API 时**：
+   - 在 `src/main.rs` 中注册新路由后
+   - **立即在 `udx710-api/` 中创建对应的 `.bru` 测试文件**
+   - 文件命名规范：
+     - GET 请求：`get_<endpoint_name>.bru`（如 `get_network_info.bru`）
+     - POST 请求：`set_<action>_<value>.bru`（如 `set_data_status_enable.bru`）
+   - 更新 `udx710-api/README.md` 文件，在对应分类下添加说明
+
+2. **修改 API 时**：
+   - 修改端点路径、参数、响应格式时
+   - **同步更新对应的 `.bru` 文件**
+   - 确保请求体、URL、参数与后端一致
+
+3. **删除 API 时**：
+   - **删除对应的 `.bru` 文件**
+   - 从 `udx710-api/README.md` 中移除相关说明
+
+### Bruno 测试文件模板
+
+#### GET 请求模板
+```
+meta {
+  name: <test_name>
+  type: http
+  seq: <number>
+}
+
+get {
+  url: http://192.168.66.1:3000/api/<endpoint>
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}
+```
+
+#### POST 请求模板（JSON）
+```
+meta {
+  name: <test_name>
+  type: http
+  seq: <number>
+}
+
+post {
+  url: http://192.168.66.1:3000/api/<endpoint>
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "key": "value"
+  }
+}
+
+settings {
+  encodeUrl: true
+}
+```
+
+### 检查清单
+在提交代码前，确保：
+- [ ] 所有 `src/main.rs` 中的路由在 `udx710-api/` 中都有对应的测试文件
+- [ ] `udx710-api/README.md` 的 API 端点表格已更新
+- [ ] 测试文件的 URL、方法、参数与后端实现一致
+- [ ] 测试文件中的示例数据是有效的
+
+### 目录结构
+```
+udx710-api/
+├── bruno.json              # Bruno 集合配置
+├── README.md               # API 文档和使用说明
+├── get_*.bru              # GET 请求测试
+├── set_*.bru              # POST/PUT 请求测试
+└── post_*.bru             # 其他 POST 请求测试
+```
+
+### 注意事项
+- Bruno 测试集合是项目的一部分，不是可选的
+- API 不同步会导致测试失败和文档过期
+- 使用 Bruno（https://www.usebruno.com/）进行 API 测试和调试
+
+## DBus/AT 操作序列化规范
+
+### 核心原则
+**所有 DBus 和 AT 指令操作必须通过 `with_serial` 包装器串行执行**，以防止 `org.ofono.Error.InProgress: Operation already in progress` 错误。
+
+### 实现要求
+1. **导入序列化模块**
+   ```rust
+   use crate::serial::with_serial;
+   ```
+
+2. **包装所有 DBus/AT 调用**
+   ```rust
+   // ✅ 正确：使用 with_serial 包装
+   pub async fn send_at_command(conn: &Connection, cmd: &str) -> zbus::Result<String> {
+       with_serial(async {
+           let proxy = Proxy::new(conn, "org.ofono", "/ril_0", "org.ofono.Modem").await?;
+           let result: String = proxy.call("SendAtcmd", &(cmd)).await?;
+           Ok(result)
+       }).await
+   }
+
+   // ❌ 错误：直接调用 DBus，可能导致 InProgress 错误
+   pub async fn send_at_command(conn: &Connection, cmd: &str) -> zbus::Result<String> {
+       let proxy = Proxy::new(conn, "org.ofono", "/ril_0", "org.ofono.Modem").await?;
+       let result: String = proxy.call("SendAtcmd", &(cmd)).await?;
+       Ok(result)
+   }
+   ```
+
+3. **适用范围**
+   - 所有 `send_at_command` 调用
+   - 所有 ofono DBus 代理方法调用
+   - 所有修改 Modem、ConnectionManager、NetworkRegistration 等状态的操作
+   - 所有查询 ofono 服务的操作（包括读操作）
+
+### 为什么需要序列化
+- ofono 服务不支持并发操作
+- 同时发送多个 AT 指令或 DBus 调用会导致 "Operation already in progress" 错误
+- `with_serial` 通过全局 Mutex 确保操作按顺序执行
+
+## API 设计规范：系统指标整合
+
+### 核心原则
+**优先扩展现有的 `/api/stats` 端点，而非创建新的独立端点**。
+
+### 设计指南
+1. **新增系统指标时**
+   - ✅ 推荐：将新字段添加到 `SystemStatsResponse` 结构
+   - ❌ 避免：创建 `/api/stats/new-metric` 新端点
+   
+   ```rust
+   // ✅ 正确：扩展现有结构
+   #[derive(Debug, Serialize, Default)]
+   pub struct SystemStatsResponse {
+       pub network_speed: NetworkSpeedResponse,
+       pub memory: MemoryInfo,
+       pub uptime: UptimeInfo,
+       pub system_info: SystemInfo,
+       pub new_metric: NewMetricInfo,  // 添加新字段
+   }
+   ```
+
+2. **例外情况**
+   可以创建独立端点的场景：
+   - 数据量特别大（如日志）
+   - 需要不同的刷新频率
+   - 属于完全独立的功能域（如 `/api/location/cell-info`、`/api/network/interfaces`）
+
+3. **历史经验**
+   - 之前的 `/api/stats/network-speed`、`/api/stats/memory`、`/api/stats/uptime` 已整合为 `/api/stats`
+   - 整合后减少了 HTTP 请求数量，避免了并发 DBus 调用问题
+
+### 好处
+- 减少 API 端点数量
+- 降低前端请求次数
+- 避免并发 DBus 操作冲突
+- 简化 API 文档和测试维护
+

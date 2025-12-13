@@ -1,0 +1,41 @@
+meta {
+  name: get_connectivity
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/api/connectivity
+  body: none
+  auth: none
+}
+
+docs {
+  # 联网检测
+  
+  通过 ping 检测 IPv4 和 IPv6 连通性。
+  
+  ## 响应示例
+  
+  ```json
+  {
+    "status": "ok",
+    "message": "Connectivity check completed",
+    "data": {
+      "ipv4": {
+        "success": true,
+        "latency_ms": 12.5,
+        "target": "223.5.5.5",
+        "error": null
+      },
+      "ipv6": {
+        "success": true,
+        "latency_ms": 15.2,
+        "target": "2400:3200::1",
+        "error": null
+      }
+    }
+  }
+  ```
+}
+

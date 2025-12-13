@@ -1,0 +1,42 @@
+<svg viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00d4ff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#0066ff;stop-opacity:1" />
+    </linearGradient>
+    
+    <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#00ffaa;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#00d4ff;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <!-- WiFi信号外圈 -->
+  <path d="M 200 280 Q 80 200, 80 80 Q 200 80, 200 80" 
+        stroke="url(#grad1)" stroke-width="16" fill="none" 
+        stroke-linecap="round" opacity="0.9"/>
+  <path d="M 200 280 Q 320 200, 320 80 Q 200 80, 200 80" 
+        stroke="url(#grad1)" stroke-width="16" fill="none" 
+        stroke-linecap="round" opacity="0.9"/>
+  
+  <!-- WiFi信号中圈 -->
+  <path d="M 200 260 Q 110 200, 110 120 Q 200 120, 200 120" 
+        stroke="url(#grad2)" stroke-width="14" fill="none" 
+        stroke-linecap="round" opacity="0.95"/>
+  <path d="M 200 260 Q 290 200, 290 120 Q 200 120, 200 120" 
+        stroke="url(#grad2)" stroke-width="14" fill="none" 
+        stroke-linecap="round" opacity="0.95"/>
+  
+  <!-- WiFi信号内圈 -->
+  <path d="M 200 240 Q 140 200, 140 160 Q 200 160, 200 160" 
+        stroke="#00ffaa" stroke-width="12" fill="none" 
+        stroke-linecap="round"/>
+  <path d="M 200 240 Q 260 200, 260 160 Q 200 160, 200 160" 
+        stroke="#00ffaa" stroke-width="12" fill="none" 
+        stroke-linecap="round"/>
+  
+  <!-- 中心发射点 -->
+  <circle cx="200" cy="280" r="35" fill="url(#grad2)"/>
+  <circle cx="200" cy="280" r="25" fill="#ffffff"/>
+  <circle cx="200" cy="280" r="15" fill="url(#grad1)"/>
+</svg>

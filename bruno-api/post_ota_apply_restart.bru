@@ -1,0 +1,34 @@
+meta {
+  name: Apply OTA Update (with restart)
+  type: http
+  seq: 203
+}
+
+post {
+  url: http://192.168.66.1:3000/api/ota/apply
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "restart_now": true
+  }
+}
+
+settings {
+  encodeUrl: true
+}
+
+docs {
+  应用已上传的 OTA 更新并立即重启服务
+  
+  参数：
+  - restart_now: true（立即重启）
+  
+  警告：
+  - 执行此操作后，服务会在 1 秒后自动重启
+  - 请确保已上传有效的 OTA 包
+  - 重启期间所有连接会断开
+}
+

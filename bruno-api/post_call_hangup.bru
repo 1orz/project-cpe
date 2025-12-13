@@ -1,0 +1,22 @@
+meta {
+  name: Hangup Call
+  type: http
+  seq: 102
+}
+
+post {
+  url: http://192.168.66.1:3000/api/call/hangup
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "path": "/ril_0/voicecall01"
+  }
+}
+
+settings {
+  encodeUrl: true
+}
+

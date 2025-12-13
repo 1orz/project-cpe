@@ -1,0 +1,16 @@
+meta {
+  name: delete_call_history
+  type: http
+  seq: 2
+}
+
+delete {
+  url: http://192.168.66.1:3000/api/call/history/1
+  body: none
+  auth: none
+}
+
+settings {
+  encodeUrl: true
+}
+

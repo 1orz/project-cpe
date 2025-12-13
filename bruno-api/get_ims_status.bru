@@ -1,0 +1,16 @@
+meta {
+  name: Get IMS Status
+  type: http
+  seq: 203
+}
+
+get {
+  url: http://192.168.66.1:3000/api/ims/status
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}
+

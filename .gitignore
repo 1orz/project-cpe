@@ -1,0 +1,29 @@
+# Rust 构建产物
+backend/target/
+target/
+
+# 前端依赖和构建文件
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+# 保留 pnpm-lock.yaml，移除其他包管理器的 lockfile
+frontend/yarn.lock
+frontend/package-lock.json
+
+# macOS
+.DS_Store
+
+# 构建产物
+*.bin
+
+# Release 包
+release/
+release/*
+
+# userdata 目录 - 仅保留必要的配置文件
+
+userdata/home/root/udx710
+userdata/home/root/www/
+
+
+.device-dump/

@@ -1,0 +1,23 @@
+meta {
+  name: Send SMS
+  type: http
+  seq: 110
+}
+
+post {
+  url: http://192.168.66.1:3000/api/sms/send
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "phone_number": "10086",
+    "content": "测试短信"
+  }
+}
+
+settings {
+  encodeUrl: true
+}
+

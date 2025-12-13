@@ -1,0 +1,17 @@
+meta {
+  name: get_stats
+  type: http
+  seq: 24
+}
+
+get {
+  url: http://192.168.66.1:3000/api/stats
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}
+
+

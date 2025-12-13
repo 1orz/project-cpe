@@ -1,0 +1,29 @@
+meta {
+  name: Cancel Pending OTA Update
+  type: http
+  seq: 204
+}
+
+post {
+  url: http://192.168.66.1:3000/api/ota/cancel
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}
+
+docs {
+  取消待安装的 OTA 更新
+  
+  操作：
+  - 清除暂存目录中的 OTA 包
+  - 删除待安装的元数据
+  
+  使用场景：
+  - 上传了错误的 OTA 包
+  - 验证失败后需要重新上传
+  - 决定不进行更新
+}
+

@@ -1,0 +1,26 @@
+meta {
+  name: set_band_lock_lte_nr_mix
+  type: http
+  seq: 31
+}
+
+post {
+  url: http://192.168.66.1:3000/api/band-lock
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "lte_fdd_bands": [1, 3, 8],
+    "lte_tdd_bands": [38, 40, 41],
+    "nr_fdd_bands": [1, 28],
+    "nr_tdd_bands": [41, 77, 78, 79]
+  }
+}
+
+settings {
+  encodeUrl: true
+}
+
+

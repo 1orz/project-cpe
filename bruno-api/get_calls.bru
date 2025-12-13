@@ -1,0 +1,16 @@
+meta {
+  name: Get Calls
+  type: http
+  seq: 100
+}
+
+get {
+  url: http://192.168.66.1:3000/api/calls
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}
+

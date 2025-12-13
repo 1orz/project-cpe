@@ -1,0 +1,23 @@
+meta {
+  name: set_airplane_mode_enable
+  type: http
+  seq: 18
+}
+
+post {
+  url: http://192.168.66.1:3000/api/airplane-mode
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "enabled": true
+  }
+}
+
+settings {
+  encodeUrl: true
+}
+
+

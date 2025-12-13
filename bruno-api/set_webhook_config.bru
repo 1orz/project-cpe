@@ -1,0 +1,29 @@
+meta {
+  name: set_webhook_config
+  type: http
+  seq: 2
+}
+
+post {
+  url: http://192.168.66.1:3000/api/webhook/config
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "enabled": true,
+    "url": "https://example.com/webhook",
+    "forward_sms": true,
+    "forward_calls": true,
+    "headers": {
+      "Authorization": "Bearer your-token"
+    },
+    "secret": "your-secret-key"
+  }
+}
+
+settings {
+  encodeUrl: true
+}
+

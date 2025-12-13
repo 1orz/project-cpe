@@ -1,0 +1,22 @@
+meta {
+  name: post_system_reboot
+  type: http
+  seq: 32
+}
+
+post {
+  url: http://192.168.66.1:3000/api/system/reboot
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "delay_seconds": 3
+  }
+}
+
+settings {
+  encodeUrl: true
+}
+

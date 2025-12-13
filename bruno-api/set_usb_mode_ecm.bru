@@ -1,0 +1,23 @@
+meta {
+  name: set_usb_mode_ecm
+  type: http
+  seq: 14
+}
+
+post {
+  url: http://192.168.66.1:3000/api/usb-mode
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "mode": 2,
+    "permanent": false
+  }
+}
+
+settings {
+  encodeUrl: true
+}
+

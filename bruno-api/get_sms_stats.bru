@@ -1,0 +1,16 @@
+meta {
+  name: Get SMS Stats
+  type: http
+  seq: 112
+}
+
+get {
+  url: http://192.168.66.1:3000/api/sms/stats
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}
+

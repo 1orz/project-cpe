@@ -1,0 +1,318 @@
+name: Build OTA Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      use_upx:
+        description: 'build with upx'
+        required: false
+        type: boolean
+        default: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build-ota:
+    name: Build OTA Package
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 获取完整历史，用于 git commit hash
+      
+      - name: Read VERSION
+        id: version
+        run: |
+          VERSION=$(cat VERSION | tr -d '[:space:]')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "📦 版本号: $VERSION"
+      
+      # ==================== 安装 Rust 工具链 ====================
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+      
+      # ==================== 安装交叉编译工具链 ====================
+      - name: Install cross-compilation toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu \
+            libc6-dev-arm64-cross
+          
+          # 验证安装
+          aarch64-linux-gnu-gcc --version
+      
+      # ==================== 安装 UPX (可选) ====================
+      - name: Install UPX
+        if: inputs.use_upx == true
+        run: |
+          sudo apt-get install -y upx-ucl
+          upx --version
+      
+      # ==================== 缓存 Rust 依赖 ====================
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            backend/target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      
+      # ==================== 同步版本号 ====================
+      - name: Sync version numbers
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          echo "同步版本号: $VERSION"
+          
+          # 更新 backend/Cargo.toml
+          sed -i "s/^version = \"[^\"]*\"/version = \"$VERSION\"/" backend/Cargo.toml
+          
+          # 更新 frontend/package.json
+          sed -i "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" frontend/package.json
+          
+          echo "✅ 版本号同步完成"
+      
+      # ==================== 构建后端 ====================
+      - name: Build backend (aarch64)
+        working-directory: backend
+        run: |
+          echo "🦀 构建后端 (aarch64-unknown-linux-gnu)..."
+          
+          # 设置交叉编译环境变量
+          export CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc
+          export CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++
+          export AR_aarch64_unknown_linux_gnu=aarch64-linux-gnu-ar
+          export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+          export SQLITE3_STATIC=1
+          export LIBSQLITE3_SYS_USE_PKG_CONFIG=0
+          
+          # 构建
+          cargo build --release --target aarch64-unknown-linux-gnu
+          
+          BINARY_PATH="target/aarch64-unknown-linux-gnu/release/udx710"
+          
+          echo "✅ 后端构建完成！"
+          ls -lh "$BINARY_PATH"
+          file "$BINARY_PATH"
+      
+      # ==================== UPX 压缩 (可选) ====================
+      - name: Compress binary with UPX
+        if: inputs.use_upx == true
+        run: |
+          BINARY_PATH="backend/target/aarch64-unknown-linux-gnu/release/udx710"
+          
+          echo "🗜️  UPX 压缩中..."
+          BEFORE_SIZE=$(stat -c%s "$BINARY_PATH")
+          
+          upx --best --lzma "$BINARY_PATH"
+          
+          AFTER_SIZE=$(stat -c%s "$BINARY_PATH")
+          RATIO=$(echo "scale=1; 100 - ($AFTER_SIZE * 100 / $BEFORE_SIZE)" | bc)
+          
+          echo "✅ 压缩完成！节省: ${RATIO}%"
+          ls -lh "$BINARY_PATH"
+      
+      # ==================== 设置 Node.js 环境 ====================
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+      
+      - name: Cache pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+      
+      # ==================== 构建前端 ====================
+      - name: Build frontend
+        working-directory: frontend
+        run: |
+          echo "🎨 构建前端..."
+          pnpm install --frozen-lockfile
+          pnpm run build
+          
+          echo "✅ 前端构建完成！"
+          ls -lh dist/
+      
+      # ==================== 打包 OTA ====================
+      - name: Package OTA
+        run: |
+          echo "=========================================="
+          echo "  生成 OTA 更新包"
+          echo "=========================================="
+          echo ""
+          
+          VERSION="${{ steps.version.outputs.version }}"
+          COMMIT=$(git rev-parse --short HEAD)
+          BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          ARCH="aarch64-unknown-linux-gnu"
+          
+          BINARY_PATH="backend/target/aarch64-unknown-linux-gnu/release/udx710"
+          FRONTEND_DIR="frontend/dist"
+          
+          # 检查构建产物
+          if [ ! -f "$BINARY_PATH" ]; then
+            echo "❌ 错误: 后端二进制不存在"
+            exit 1
+          fi
+          
+          if [ ! -d "$FRONTEND_DIR" ]; then
+            echo "❌ 错误: 前端构建产物不存在"
+            exit 1
+          fi
+          
+          # 创建临时目录
+          OTA_TMP=$(mktemp -d)
+          
+          echo "📦 版本: $VERSION"
+          echo "📝 Commit: $COMMIT"
+          echo "🕐 构建时间: $BUILD_TIME"
+          echo ""
+          
+          # 复制后端二进制
+          echo "📋 复制后端二进制..."
+          cp "$BINARY_PATH" "$OTA_TMP/udx710"
+          chmod 755 "$OTA_TMP/udx710"
+          
+          # 计算二进制 MD5 (Linux)
+          BINARY_MD5=$(md5sum "$OTA_TMP/udx710" | cut -d' ' -f1)
+          echo "   MD5: $BINARY_MD5"
+          
+          # 复制前端文件
+          echo "📋 复制前端文件..."
+          mkdir -p "$OTA_TMP/www"
+          cp -r "$FRONTEND_DIR"/* "$OTA_TMP/www/"
+          
+          # 计算前端 MD5 (Linux)
+          echo "📋 计算前端 MD5..."
+          FRONTEND_MD5=$(find "$OTA_TMP/www" -type f -exec md5sum {} \; | cut -d' ' -f1 | sort | md5sum | cut -d' ' -f1)
+          echo "   MD5: $FRONTEND_MD5"
+          
+          # 生成 meta.json
+          echo "📋 生成 meta.json..."
+          cat > "$OTA_TMP/meta.json" << EOF
+          {
+              "version": "$VERSION",
+              "commit": "$COMMIT",
+              "build_time": "$BUILD_TIME",
+              "binary_md5": "$BINARY_MD5",
+              "frontend_md5": "$FRONTEND_MD5",
+              "arch": "$ARCH"
+          }
+          EOF
+          
+          cat "$OTA_TMP/meta.json"
+          echo ""
+          
+          # 创建输出目录
+          mkdir -p release
+          
+          # 打包
+          OTA_FILE="release/udx710-ota-${VERSION}.tar.gz"
+          echo "📦 打包 OTA 更新包..."
+          cd "$OTA_TMP"
+          tar -czf "$GITHUB_WORKSPACE/$OTA_FILE" meta.json udx710 www
+          cd "$GITHUB_WORKSPACE"
+          
+          # 显示结果
+          echo ""
+          echo "=========================================="
+          echo "✅ OTA 更新包打包完成！"
+          echo "=========================================="
+          echo ""
+          echo "📍 输出文件: $OTA_FILE"
+          ls -lh "$OTA_FILE"
+          echo ""
+          echo "📋 包内容:"
+          tar -tzf "$OTA_FILE" | head -20
+          echo ""
+          
+          # 计算包的 MD5
+          OTA_MD5=$(md5sum "$OTA_FILE" | cut -d' ' -f1)
+          echo "📝 OTA 包 MD5: $OTA_MD5"
+          echo ""
+          
+          # 保存到输出
+          echo "ota_file=$OTA_FILE" >> $GITHUB_OUTPUT
+          echo "ota_md5=$OTA_MD5" >> $GITHUB_OUTPUT
+        id: package
+      
+      # ==================== 上传 OTA 包为 Artifact ====================
+      - name: Upload OTA package
+        uses: actions/upload-artifact@v4
+        with:
+          name: udx710-ota-${{ steps.version.outputs.version }}
+          path: release/udx710-ota-*.tar.gz
+          retention-days: 90
+          if-no-files-found: error
+      
+      # ==================== 创建 Release (可选) ====================
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release/udx710-ota-*.tar.gz
+          body: |
+            ## OTA 更新包
+            
+            **版本**: ${{ steps.version.outputs.version }}
+            **Commit**: ${{ github.sha }}
+            **构建时间**: ${{ github.event.repository.updated_at }}
+            
+            ### 安装说明
+            
+            ```bash
+            # 上传 OTA 包到设备
+            curl -X POST http://192.168.66.1:3000/api/ota/upload \
+              -F "file=@udx710-ota-${{ steps.version.outputs.version }}.tar.gz"
+            
+            # 开始 OTA 更新
+            curl -X POST http://192.168.66.1:3000/api/ota/update
+            ```
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      # ==================== 构建摘要 ====================
+      - name: Build Summary
+        run: |
+          echo "## 🎉 OTA 包构建完成" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| 项目 | 值 |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-----|" >> $GITHUB_STEP_SUMMARY
+          echo "| 版本 | ${{ steps.version.outputs.version }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Commit | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 架构 | aarch64-unknown-linux-gnu |" >> $GITHUB_STEP_SUMMARY
+          echo "| UPX 压缩 | ${{ inputs.use_upx }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 产物" >> $GITHUB_STEP_SUMMARY
+          echo "- \`${{ steps.package.outputs.ota_file }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- MD5: \`${{ steps.package.outputs.ota_md5 }}\`" >> $GITHUB_STEP_SUMMARY
+

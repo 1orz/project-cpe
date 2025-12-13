@@ -1,0 +1,16 @@
+meta {
+  name: get_network_info
+  type: http
+  seq: 5
+}
+
+get {
+  url: http://192.168.66.1:3000/api/network
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}
+

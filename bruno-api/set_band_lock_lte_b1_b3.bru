@@ -1,0 +1,26 @@
+meta {
+  name: set_band_lock_lte_b1_b3
+  type: http
+  seq: 29
+}
+
+post {
+  url: http://192.168.66.1:3000/api/band-lock
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "lte_fdd_bands": [1, 3],
+    "lte_tdd_bands": [],
+    "nr_fdd_bands": [],
+    "nr_tdd_bands": []
+  }
+}
+
+settings {
+  encodeUrl: true
+}
+
+

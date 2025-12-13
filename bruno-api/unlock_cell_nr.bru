@@ -1,0 +1,27 @@
+meta {
+  name: 解锁NR小区
+  type: http
+  seq: 73
+}
+
+post {
+  url: http://192.168.66.1:3000/api/cell-lock
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "rat": 16,
+    "enable": false
+  }
+}
+
+settings {
+  encodeUrl: true
+}
+
+
+
+
+

@@ -1,0 +1,24 @@
+meta {
+  name: Set Call Volume
+  type: http
+  seq: 205
+}
+
+post {
+  url: http://192.168.66.1:3000/api/call/volume
+  body: json
+  auth: inherit
+}
+
+body:json {
+  {
+    "speaker_volume": 50,
+    "microphone_volume": 50,
+    "muted": false
+  }
+}
+
+settings {
+  encodeUrl: true
+}
+

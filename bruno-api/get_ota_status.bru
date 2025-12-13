@@ -1,0 +1,26 @@
+meta {
+  name: Get OTA Status
+  type: http
+  seq: 200
+}
+
+get {
+  url: http://192.168.66.1:3000/api/ota/status
+  body: none
+  auth: inherit
+}
+
+settings {
+  encodeUrl: true
+}
+
+docs {
+  获取 OTA 更新状态
+  
+  返回信息：
+  - current_version: 当前运行版本
+  - current_commit: 当前 Git commit
+  - pending_update: 是否有待安装的更新
+  - pending_meta: 待安装更新的元数据（如果有）
+}
+
