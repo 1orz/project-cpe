@@ -184,6 +184,7 @@ jobs:
           COMMIT=$(git rev-parse --short HEAD)
           BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           ARCH="${{ matrix.target }}"
+          LIBC="${{ matrix.libc }}"
           
           BINARY_PATH="backend/target/${{ matrix.target }}/release/udx710"
           FRONTEND_DIR="frontend/dist"
