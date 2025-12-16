@@ -164,7 +164,7 @@ fn validate_ota_package(meta: &OtaMeta) -> Result<OtaValidation, String> {
     let frontend_md5_match = true; // 跳过前端 MD5 验证
 
     // 检查架构
-    let arch_match = meta.arch == "aarch64-unknown-linux-gnu";
+    let arch_match = meta.arch == "aarch64-unknown-linux-gnu" || meta.arch == "aarch64-unknown-linux-musl";
 
     // 比较版本
     let is_newer = compare_versions(&meta.version, CURRENT_VERSION);
