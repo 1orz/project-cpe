@@ -198,6 +198,64 @@ AT+SPLBAND=2,0,0,0,0
 
 ---
 
+## 📈 性能调优（UDX710 平台）
+
+UDX710 双核 Cortex-A55 上，Linux 默认会把 5G 数据 IRQ（`sipa`）和 USB 出口 IRQ（`xhci`）都塞到 CPU0，单核串行排队限制了下行吞吐。把 `xhci` 挪到 CPU1、开 RPS 让收包软中断分散到双核，**实测下行 +100 Mbps**（project-cpe 本身只占 19MB VSZ、CPU% ≈ 0，瓶颈不在 daemon，而在默认的 IRQ 调度）。
+
+### 一次性应用（重启失效）
+
+```sh
+# 1) xhci USB IRQ 挪到 CPU1（IRQ 号在本平台是 97，建议先 cat /proc/interrupts 确认）
+echo 2 > /proc/irq/97/smp_affinity
+
+# 2) RPS：让 RX 软中断分散到两个核
+for d in sipa_eth0 usb0; do
+    for q in /sys/class/net/$d/queues/rx-*/rps_cpus; do
+        echo 3 > "$q"
+    done
+done
+
+# 3) 扩大 RPS flow table
+echo 32768 > /proc/sys/net/core/rps_sock_flow_entries
+```
+
+### 持久化（推荐）
+
+把下面这段加到启动脚本末尾（如 `/home/root/loader.sh`）：
+
+```sh
+tune_net() {
+    [ -w /proc/irq/97/smp_affinity ] && echo 2 > /proc/irq/97/smp_affinity
+    for d in sipa_eth0 usb0; do
+        for q in /sys/class/net/$d/queues/rx-*/rps_cpus; do
+            [ -w "$q" ] && echo 3 > "$q"
+        done
+    done
+    [ -w /proc/sys/net/core/rps_sock_flow_entries ] && \
+        echo 32768 > /proc/sys/net/core/rps_sock_flow_entries
+}
+( sleep 3; tune_net; sleep 5; tune_net ) &
+```
+
+延迟启动 + 两次重试是为了等接口起来。
+
+### 怎么验证
+
+调优前 `/proc/interrupts`：
+
+```
+ 22:   19965471          0     GICv3  78 Level     sprd,sipa
+ 97:   26201032          0     GICv3  51 Level     xhci-hcd:usb1, dwc3
+```
+
+两个 IRQ 全部在 CPU0。调优后 IRQ 97 的 CPU1 列开始增长；`/proc/softirqs` 的 NET_RX 从 ~80% CPU0 平衡到 ~30% CPU0 / 70% CPU1。`top` 的 load average 从 3.4 降到 2.2。
+
+### 不是 project-cpe 的事
+
+这是 kernel 层调优，不需要 project-cpe 做任何代码改动。补到这里只是方便后续 UDX710 用户能搜到。
+
+---
+
 ## 📚 API 接口文档
 
 ### 基础信息
