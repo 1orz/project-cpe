@@ -621,110 +621,79 @@ fn stop_adbd() -> io::Result<()> {
     Ok(())
 }
 
+/// One shell step used to bring up the LAN gateway on usb0.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LanGatewayStep {
+    pub program: String,
+    pub args: Vec<String>,
+}
+
+fn lan_gateway_step(program: &str, args: &[&str]) -> LanGatewayStep {
+    LanGatewayStep {
+        program: program.to_string(),
+        args: args.iter().map(|s| (*s).to_string()).collect(),
+    }
+}
+
+/// Ordered commands that enable ConnMan gadget DHCP and assign 192.168.66.1.
+///
+/// Must not hijack the cellular default route.
+pub fn lan_gateway_plan() -> Vec<LanGatewayStep> {
+    vec![
+        lan_gateway_step("connmanctl", &["enable", "gadget"]),
+        lan_gateway_step("connmanctl", &["tether", "gadget", "on"]),
+        lan_gateway_step(
+            "ifconfig",
+            &["usb0", USB_INTERFACE_IP, "netmask", "255.255.255.0"],
+        ),
+        lan_gateway_step("ip", &["link", "set", "dev", "usb0", "up"]),
+        lan_gateway_step("ifconfig", &["sipa_usb0", "down"]),
+    ]
+}
+
+/// Bring up usb0 LAN gateway + DHCP without changing the default route.
+pub fn ensure_lan_gateway() -> Result<(), String> {
+    for step in lan_gateway_plan() {
+        let _ = Command::new(&step.program).args(&step.args).output();
+    }
+    Ok(())
+}
+
 /// 配置 USB 网络接口
-/// 
-/// 此函数实现完整的 USB 网络初始化，参考 /etc/route_test.sh 脚本。
-/// 
-/// ## 初始化流程
-/// 1. 启用 connman gadget tethering
-/// 2. 配置 usb0 接口 IP 和 MAC 地址
-/// 3. 关闭 sipa_usb0 接口
-/// 4. 启用 SFP 硬件转发加速
-/// 5. 配置 iptables 防火墙规则
-/// 6. 标记配置完成
+///
+/// 热切换后拉起局域网网关；不修改蜂窝默认路由。
 fn configure_usb_network() -> Result<(), String> {
     // 等待接口出现
     std::thread::sleep(std::time::Duration::from_millis(500));
-    
-    // 1. 配置 connman gadget tethering
-    // 先关闭再重新启用（避免 "Already enabled" 错误）
+
+    // 先关闭再重新启用（避免 Already enabled），再走统一拉起路径
     let _ = Command::new("connmanctl")
         .args(["tether", "gadget", "off"])
         .output();
-    
     std::thread::sleep(std::time::Duration::from_millis(100));
-    
     let _ = Command::new("connmanctl")
         .args(["disable", "gadget"])
         .output();
-    
     std::thread::sleep(std::time::Duration::from_millis(200));
-    
-    // 重新启用
-    let _ = Command::new("connmanctl")
-        .args(["enable", "gadget"])
-        .output();
-    
-    std::thread::sleep(std::time::Duration::from_millis(100));
-    
-    let _ = Command::new("connmanctl")
-        .args(["tether", "gadget", "on"])
-        .output();
-    
-    std::thread::sleep(std::time::Duration::from_millis(300));
-    
-    // 2. 配置 usb0 接口
-    // 等待接口出现并重试
-    let max_retries = 5;
-    for retry in 0..max_retries {
-        // 检查接口是否存在
-        let check = Command::new("ifconfig")
-            .arg("-a")
-            .output();
-        
-        if let Ok(output) = check {
-            let output_str = String::from_utf8_lossy(&output.stdout);
-            if output_str.contains("usb0") || output_str.contains(USB_INTERFACE_IP) {
-                break;
-            }
-        }
-        
-        if retry < max_retries - 1 {
-            // 尝试添加 IP 地址
-            let _ = Command::new("ifconfig")
-                .args(["usb0", "add", USB_INTERFACE_IP])
-                .output();
-            
-            std::thread::sleep(std::time::Duration::from_secs(1));
-        }
-    }
-    
-    // 设置 IP 地址和子网掩码
-    let _ = Command::new("ifconfig")
-        .args(["usb0", USB_INTERFACE_IP, "netmask", "255.255.255.0"])
-        .output();
-    
-    // 设置 MAC 地址
+
+    ensure_lan_gateway()?;
+
+    // 设置 MAC 地址（与 gadget 约定一致）
     let _ = Command::new("ifconfig")
         .args(["usb0", "hw", "ether", USB_INTERFACE_MAC])
         .output();
-    
-    // 启动接口
-    let _ = Command::new("ip")
-        .args(["link", "set", "dev", "usb0", "up"])
-        .output();
-    
-    // 添加默认路由（用于主机端访问）
-    let _ = Command::new("ip")
-        .args(["route", "add", "default", "via", "192.168.66.2"])
-        .output();
-    
-    // 3. 关闭 sipa_usb0 接口（IPA USB 接口，避免冲突）
-    let _ = Command::new("ifconfig")
-        .args(["sipa_usb0", "down"])
-        .output();
-    
-    // 4. 启用 SFP 硬件转发加速
+
+    // 启用 SFP 硬件转发加速
     let _ = enable_sfp_acceleration();
-    
-    // 5. 标记配置完成
+
+    // 标记配置完成
     let _ = fs::write("/tmp/sipa_usb0_ok", "");
-    
-    // 6. 输出当前网络配置到内核日志（用于调试）
+
+    // 输出当前网络配置到内核日志（用于调试）
     let _ = Command::new("sh")
         .args(["-c", "ifconfig > /dev/kmsg 2>/dev/null"])
         .output();
-    
+
     Ok(())
 }
 
@@ -848,6 +817,47 @@ pub fn get_current_usb_mode() -> Result<UsbModeResult, String> {
                 .map(|mode| UsbModeResult { mode })
                 .ok_or_else(|| format!("Unknown USB mode (VID={}, PID={})", vid, pid))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{lan_gateway_plan, USB_INTERFACE_IP};
+
+    #[test]
+    fn lan_gateway_plan_enables_tether_without_hijacking_default_route() {
+        let plan = lan_gateway_plan();
+        assert!(
+            plan.iter().any(|step| {
+                step.program == "connmanctl"
+                    && step.args
+                        == [
+                            "tether".to_string(),
+                            "gadget".to_string(),
+                            "on".to_string(),
+                        ]
+            }),
+            "plan must enable connman gadget DHCP"
+        );
+        assert!(
+            plan.iter().any(|step| step.args.iter().any(|arg| arg == USB_INTERFACE_IP)),
+            "plan must assign the LAN gateway address"
+        );
+        assert!(
+            !plan.iter().any(|step| {
+                step.program == "ip"
+                    && step.args.windows(4).any(|window| {
+                        window
+                            == [
+                                "route".to_string(),
+                                "add".to_string(),
+                                "default".to_string(),
+                                "via".to_string(),
+                            ]
+                    })
+            }),
+            "plan must not steal the default route from cellular"
+        );
     }
 }
 

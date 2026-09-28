@@ -1,0 +1,5 @@
+{
+  "openspec_proposal": "docs/openspec/changes/fix-lan-usb0-dhcp/proposal.md",
+  "openspec_design": "docs/openspec/changes/fix-lan-usb0-dhcp/design.md",
+  "openspec_tasks": "docs/openspec/changes/fix-lan-usb0-dhcp/tasks.md"
+}
